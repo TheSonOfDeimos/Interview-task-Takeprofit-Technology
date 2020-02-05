@@ -9,36 +9,22 @@
 
 class SafeVector {
 public:
-    SafeVector()
-        : vec(),
-        mut(),
-        cond()
-    {
-    }
-    
-    SafeVector(const SafeVector& orig)
-        : vec(orig.vec),
-        mut(),
-        cond()
-    {
-    }
-    
-    ~SafeVector()
-    {
-
-    }
+    SafeVector();
+    SafeVector(const SafeVector& orig);
+    ~SafeVector() = default;
 
     void insert(int in, const int index);
     void push_back(int in);
-    int& operator[](const int index);
+    const int& at(std::size_t pos) const;
+    std::size_t size() const;
     std::vector<int>::iterator begin();
     std::vector<int>::iterator end();
     std::vector<int>& toVector();
 
 private:
-    std::vector<int> vec;
-    std::mutex mut;
-    std::condition_variable cond;
+    std::vector<int> vec_;
+    std::mutex mut_;
+    std::condition_variable cond_;
 };
 
 #endif /* threadSafeVector_hpp */
