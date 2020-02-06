@@ -8,7 +8,6 @@
 #include <boost/asio.hpp>
 #include <boost/lockfree/queue.hpp>
 #include <boost/function.hpp>
-#include "threadSafeVector.hpp"
 #include "session.hpp"
 #include "macro_definition.h"
 
@@ -55,7 +54,7 @@ int main(int argc, char* argv[])
         boost::shared_ptr<MessagePool> msg_pool(new MessagePool(COUNTER_FINISH));
         
         // Create all sockets
-        
+        // Init connections, connect to server
         tcp::endpoint ep( boost::asio::ip::address::from_string(argv[1]), std::stoi(argv[2]));
         std::vector<boost::shared_ptr<Session>> ses_vec;
         for (int i = 0; i < SOCKET_COUNT; i++)
@@ -63,12 +62,7 @@ int main(int argc, char* argv[])
             ses_vec.emplace_back(new Session(service, ep));
             ses_vec.back() -> setMsgPool(msg_pool);
             ses_vec.back() -> addMesgProcessor(msg_proc_ptr);
-        }
-        
-        // Init connections, connect to server
-        for (auto& i : ses_vec)
-        {
-            i->start();
+            ses_vec.back() -> start();
         }
         
         // Create all thrads
@@ -79,10 +73,9 @@ int main(int argc, char* argv[])
         }
         threads.join_all();
         
-        std::cout << "\nMED IS " << msg_proc_ptr -> countMed() << "\n";
         // Print results
+        std::cout << "\nMED IS " << msg_proc_ptr -> countMed() << "\n";
         std::cout << "\nVector size " << msg_proc_ptr -> getData().size() << "\n";
-        
         
         // Stop timer  and print total duration
         clk.stop();

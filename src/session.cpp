@@ -46,7 +46,9 @@ void MessageProcessor::operator () (std::string str)
     str.erase(std::remove_if(str.begin(), str.end(), ::ispunct), str.end());
     try
     {
-        s_vec_.push_back(std::stoi(str));
+        mtx_.lock();
+        vec_.push_back(std::stoi(str));
+        mtx_.unlock();
     }
     catch(std::invalid_argument& e)
     {
@@ -58,21 +60,26 @@ void MessageProcessor::operator () (std::string str)
     }
 }
     
-std::vector<int>& MessageProcessor::getData()
+std::vector<int> MessageProcessor::getData()
 {
-    return s_vec_.toVector();
+    std::lock_guard<std::mutex> geard(mtx_);
+    return vec_;
 }
 
 const int MessageProcessor::countMed()
 {
     try
     {
-        std::sort(s_vec_.begin(), s_vec_.end());
-        if (s_vec_.size() % 2 == 0) {
-            return (s_vec_.at(s_vec_.size() / 2) + s_vec_.at((s_vec_.size() / 2) + 1)) / 2;
+        std::lock_guard<std::mutex> geard(mtx_);
+        
+        int res = 0;
+        std::sort(vec_.begin(), vec_.end());
+        if (vec_.size() % 2 == 0) {
+            res =  (vec_.at(vec_.size() / 2) + vec_.at((vec_.size() / 2) + 1)) / 2;
         } else {
-            return s_vec_.at((s_vec_.size() / 2) + 1);
+            res =  vec_.at((vec_.size() / 2) + 1);
         }
+        return res;
     }
     catch(std::out_of_range& e)
     {
@@ -81,7 +88,7 @@ const int MessageProcessor::countMed()
 }
 
         
-Session::Session(boost::shared_ptr<boost::asio::io_service> io_service, tcp::endpoint& ep)
+Session::Session(boost::shared_ptr<boost::asio::io_service> io_service, const tcp::endpoint& ep)
     : socket_(*io_service),
     ep_(ep),
     io_service_(io_service),
@@ -96,24 +103,70 @@ tcp::socket& Session::socket()
 
 void Session::start()
 {
-    socket_.async_connect(ep_, boost::bind(&Session::connect_handler, this,
+    socket_.async_connect(ep_, boost::bind(&Session::connectHandler, this,
     boost::asio::placeholders::error));
 }
 
-
-void Session::processMsg(std::string str)
+void Session::stop()
 {
-    (*message_processor_)(str);
+    io_service_ -> post([this]() {
+      socket_.close();
+    });
 }
+
+void Session::setMsgPool(boost::shared_ptr<MessagePool> pool)
+{
+    msg_pool_ = pool;
+}
+
+void Session::addMesgProcessor(boost::shared_ptr<MessageProcessor> proc)
+{
     
-void Session::connect_handler(const boost::system::error_code& error)
+    message_processor_ = proc;
+}
+
+
+    
+void Session::connectHandler(const boost::system::error_code& error)
 {
     if (!error) {
         sendMsg();
     }
 }
-    
-void Session::handle_read(const boost::system::error_code& error, size_t bytes_transferred)
+   
+void Session::sendMsg()
+{
+    if (msg_pool_.get() != 0) {
+        std::string message_to_send;
+        if (msg_pool_ -> pop_msg(&message_to_send)) {
+            current_task_ = message_to_send;
+            std::cout << "Counter: " << message_to_send;
+            boost::asio::async_write(socket(), boost::asio::buffer(message_to_send),
+                                     boost::bind(&Session::handleWrite, this, boost::asio::placeholders::error));
+        }
+        else {
+            stop();
+        }
+    }
+    else {
+        std::cerr << "Message pool isn't declared\n";
+    }
+}
+
+void Session::handleWrite(const boost::system::error_code& error)
+{
+    if (!error) {
+        boost::asio::async_read_until(socket(), buff_, '\n', boost::bind(&Session::handleRead,
+                                                                         this,
+                                                                         boost::asio::placeholders::error,
+                                                                         boost::asio::placeholders::bytes_transferred));
+    }
+    else {
+        handlError(error);
+    }
+}
+
+void Session::handleRead(const boost::system::error_code& error, size_t bytes_transferred)
 {
     if (!error) {
         std::string str((std::istreambuf_iterator<char>(&buff_)), std::istreambuf_iterator<char>());
@@ -130,64 +183,19 @@ void Session::handle_read(const boost::system::error_code& error, size_t bytes_t
     }
 }
 
-void Session::handle_write(const boost::system::error_code& error)
+void Session::processMsg(std::string str)
 {
-    if (!error) {
-        boost::asio::async_read_until(socket(), buff_, '\n', boost::bind(&Session::handle_read,
-                                                                         this,
-                                                                         boost::asio::placeholders::error,
-                                                                         boost::asio::placeholders::bytes_transferred));
-    }
-    else {
-        handlError(error);
-    }
-}
-
-void Session::setMsgPool(boost::shared_ptr<MessagePool> pool)
-{
-    msg_pool_ = pool;
-}
-
-void Session::addMesgProcessor(boost::shared_ptr<MessageProcessor> proc)
-{
-    
-    message_processor_ = proc;
-}
-
-void Session::sendMsg()
-{
-    if (msg_pool_.get() != 0) {
-        std::string message_to_send;
-        if (msg_pool_ -> pop_msg(&message_to_send)) {
-            current_task_ = message_to_send;
-            std::cout << "Counter: " << message_to_send;
-            socket_.async_write_some(boost::asio::buffer(message_to_send),
-                                     boost::bind(&Session::handle_write, this, boost::asio::placeholders::error));
-        }
-        else {
-            stop();
-        }
-    }
-    else {
-        std::cerr << "Message pool isn't declared\n";
-    }
-}
-
-void Session::stop()
-{
-    io_service_ -> post([this]() {
-      socket_.close();
-    });
+    (*message_processor_)(str);
 }
 
 void Session::handlError(const boost::system::error_code& error)
 {
-    std::cerr << "[Error occurred] ";
+    
     if (boost::asio::error::connection_reset == error || boost::asio::error::eof == error) {
-        std::cerr << "Connection lost!\n";
-        
+        std::cerr << "[Error occurred] Connection lost!\n";
     }
     else {
+        std::cerr << "[Error occurred] Some error\n";
         stop();
     }
     

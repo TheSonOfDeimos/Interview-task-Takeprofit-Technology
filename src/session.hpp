@@ -11,7 +11,6 @@
 #include <boost/asio.hpp>
 #include <boost/lockfree/queue.hpp>
 #include <boost/function.hpp>
-#include "threadSafeVector.hpp"
 
 using boost::asio::ip::tcp;
 
@@ -33,17 +32,18 @@ class MessageProcessor
 public:
 
     void operator () (std::string str);
-    std::vector<int>& getData();
+    std::vector<int> getData();
     const int countMed();
     
 private:
-    SafeVector s_vec_;
+    std::vector<int> vec_;
+    std::mutex mtx_;
 };
 
 class Session
 {
 public:
-    Session(boost::shared_ptr<boost::asio::io_service> io_service, tcp::endpoint& ep);
+    Session(boost::shared_ptr<boost::asio::io_service> io_service, const tcp::endpoint& ep);
 
     tcp::socket& socket();
     
@@ -58,39 +58,37 @@ public:
   
 private:
     /*
-     * Deletes all punct
-     * Passes int value to thread safe countainer
-     */
-    void processMsg(std::string str);
-    
-    /*
      * Check if the connection succeded
      * Write data from counter to socket
      * Call hadle_write
      */
-    void connect_handler(const boost::system::error_code& error);
+    void connectHandler(const boost::system::error_code& error);
+    void sendMsg();
     
     /*
      * Read data from socker until special symbol
      * Call handle_read
      */
-    void handle_write(const boost::system::error_code& error);
+    void handleWrite(const boost::system::error_code& error);
     
     /*
      * Take data from sream buff and call processMsg
      */
-    void handle_read(const boost::system::error_code& error, size_t bytes_transferred);
-    void sendMsg();
-    void handlError(const boost::system::error_code& error);
+    void handleRead(const boost::system::error_code& error, size_t bytes_transferred);
     
+    /*
+     * Deletes all punct
+     * Passes int value to thread safe countainer
+     */
+    void processMsg(std::string str);
+    void handlError(const boost::system::error_code& error);
     
     tcp::socket socket_;
     boost::asio::streambuf buff_;
     boost::shared_ptr<boost::asio::io_service> io_service_;
-    tcp::endpoint& ep_;
+    const tcp::endpoint& ep_;
     boost::shared_ptr<MessagePool> msg_pool_;
     boost::shared_ptr<MessageProcessor> message_processor_;
-    
     std::string current_task_;
 };
 

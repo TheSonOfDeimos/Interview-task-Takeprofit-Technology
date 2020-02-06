@@ -6,7 +6,7 @@
 #define COUNTER_FINISH 2018
 #define COUNTER_START 1
 #define THREAD_COUNT 7
-#define SOCKET_COUNT 600
+#define SOCKET_COUNT 100
 
 //=========================================
 
